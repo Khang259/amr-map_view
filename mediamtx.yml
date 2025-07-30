@@ -1,0 +1,76 @@
+# MediaMTX Configuration for RTSP to HLS conversion
+# Đặt file này cùng thư mục với binary mediamtx
+
+# Server settings
+logLevel: info
+logDestinations: [stdout]
+logFile: mediamtx.log
+
+# API settings
+api: yes
+apiAddress: 0.0.0.0:9997
+
+# Metrics
+metrics: yes
+metricsAddress: 0.0.0.0:9998
+
+# HLS settings
+hlsAddress: 0.0.0.0:8888
+hlsEncryption: no
+hlsAllowOrigin: "*"
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+
+# WebRTC settings (optional, for future use)
+webrtcAddress: 0.0.0.0:8889
+webrtcAllowOrigin: "*"
+
+# RTSP settings
+rtspAddress: 0.0.0.0:8554
+
+# Path configurations
+paths:
+  # Camera 1 - Warehouse Entrance
+  cam1:
+    # Thay thế bằng URL RTSP thực tế của camera
+    source: rtsp://admin:Soncave1!@192.168.1.31:554/streaming/channels/102
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 10s
+    sourceOnDemandCloseAfter: 10s
+    
+  # Camera 2 - Storage Area  
+  cam2:
+    source: rtsp://admin:Soncave1!@192.168.1.30:554/streaming/channels/102
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 10s
+    sourceOnDemandCloseAfter: 10s
+    
+  # Camera 3 - Robot Zone
+  cam3:
+    source: rtsp://admin:Soncave1!@192.168.1.29:554/streaming/channels/101
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 10s
+    sourceOnDemandCloseAfter: 10s
+    
+  # Camera 4 - Charging Station
+  cam4:
+    source: rtsp://admin:Soncave1!@192.168.1.28:554/streaming/channels/101
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 10s
+    sourceOnDemandCloseAfter: 10s
+
+  # Demo stream cho testing (sử dụng test stream từ internet)
+  demo1:
+    source: rtsp://wowzaec2demo.streamlock.net/vod/mp4:BigBuckBunny_115k.mp4
+    sourceOnDemand: yes
+    
+  demo2:
+    source: rtsp://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4
+    sourceOnDemand: yes
+
+# Ghi chú:
+# 1. Thay thế username:password@IP:port bằng thông tin camera thực tế
+# 2. sourceOnDemand: yes - chỉ kết nối camera khi có client xem
+# 3. Sau khi chạy MediaMTX, truy cập: http://localhost:8888/cam1/index.m3u8 
