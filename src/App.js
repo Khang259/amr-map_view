@@ -1,7 +1,10 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import './App.css';
 import CameraGrid from './components/CameraGrid';
 import { cameraConfig } from './config/cameras';
+import useDrawMap from './hooks/useDrawMap';
+import useFileImport from './hooks/useFileImport';
+import useMapControls from './hooks/useMapControls';
 
 const AMRWarehouseMap = () => {
   const canvasRef = useRef(null);
@@ -9,15 +12,9 @@ const AMRWarehouseMap = () => {
   const [securityConfig, setSecurityConfig] = useState(null);
   const [robotPosition, setRobotPosition] = useState({ x: 49043, y: 74172, angle: 0 });
   const [selectedAvoidanceMode, setSelectedAvoidanceMode] = useState(1);
-  const [scale, setScale] = useState(0.008);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [showNodes, setShowNodes] = useState(true);
   const [showPaths, setShowPaths] = useState(true);
   const [showChargeStations, setShowChargeStations] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [mapFileName, setMapFileName] = useState('');
-  const [securityFileName, setSecurityFileName] = useState('');
   const [amrImage, setAmrImage] = useState(null); // State to hold the loaded AMR image
   
   // Node customization states
@@ -27,10 +24,13 @@ const AMRWarehouseMap = () => {
   const [showNodeShadow, setShowNodeShadow] = useState(true);
   const [showNodeGradient, setShowNodeGradient] = useState(false);
 
-  // Map transformation states
-  const [rotation, setRotation] = useState(0);
-  const [mirrorX, setMirrorX] = useState(false);
-  const [mirrorY, setMirrorY] = useState(false);
+  // Custom hooks
+  const drawMap = useDrawMap();
+  const { loading, error, mapFileName, securityFileName, handleFileImport } = useFileImport();
+  const { 
+    scale, offset, rotation, mirrorX, mirrorY, setOffset,
+    handleZoom, handleReset, handleRotate, handleMirrorX, handleMirrorY 
+  } = useMapControls();
 
   // Camera and tab management states
   const [activeTab, setActiveTab] = useState('map');
@@ -54,334 +54,31 @@ const AMRWarehouseMap = () => {
     };
   }, []); // Empty dependency array means it runs once on mount
 
-  const handleFileImport = (file, type) => {
-    if (!file) return;
-    setLoading(true);
-    setError(null);
-
-    const reader = new FileReader();
-    
-    reader.onload = (e) => {
-      try {
-        const jsonData = JSON.parse(e.target.result);
-        
-        if (type === 'map') {
-          if (!jsonData.nodeKeys || !jsonData.lineKeys || !jsonData.nodeArr) {
-            throw new Error('Invalid map file format. Missing required fields: nodeKeys, lineKeys, or nodeArr');
-          }
-          setMapData(jsonData);
-          setMapFileName(file.name);
-          setScale(0.008);
-          setOffset({ x: 0, y: 0 });
-        } else if (type === 'security') {
-          if (!jsonData.AvoidSceneSet) {
-            throw new Error('Invalid security file format. Missing AvoidSceneSet field');
-          }
-          setSecurityConfig(jsonData);
-          setSecurityFileName(file.name);
-          if (jsonData.AvoidSceneSet.length > 0) {
-            setSelectedAvoidanceMode(jsonData.AvoidSceneSet[0].id);
-          }
-        }
-      } catch (error) {
-        setError(`Error parsing ${type} file: ${error.message}`);
-        console.error('File parsing error:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    reader.onerror = () => {
-      setError(`Error reading ${type} file`);
-      setLoading(false);
-    };
-
-    reader.readAsText(file);
+  const handleFileImportWrapper = (file, type) => {
+    handleFileImport(file, type, setMapData, setSecurityConfig, setSelectedAvoidanceMode);
   };
 
   const handleMapFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      handleFileImport(file, 'map');
+      handleFileImportWrapper(file, 'map');
     }
   };
 
   const handleSecurityFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      handleFileImport(file, 'security');
+      handleFileImportWrapper(file, 'security');
     }
   };
-
-
-
-
-
-  // Parse nodes từ nodeArr
-  const parseNodes = useCallback((nodeArr, nodeKeys) => {
-    return nodeArr.map(nodeData => {
-      const node = {};
-      nodeKeys.forEach((key, index) => {
-        node[key] = nodeData[index];
-      });
-      return node;
-    });
-  }, []);
-
-  // Parse lines từ lineArr  
-  const parseLines = useCallback((lineArr, lineKeys) => {
-    return lineArr.map(lineData => {
-      const line = {};
-      lineKeys.forEach((key, index) => {
-        line[key] = lineData[index];
-      });
-      return line;
-    });
-  }, []);
-
-  const drawGrid = useCallback((ctx, data) => {
-    const gridSize = 10000;
-    ctx.strokeStyle = '#f0f0f0';
-    ctx.lineWidth = 300;
-    
-    for (let x = 0; x <= data.width; x += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, data.height);
-      ctx.stroke();
-    }
-    
-    for (let y = 0; y <= data.height; y += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(data.width, y);
-      ctx.stroke();
-    }
-  }, []);
-
-  const drawPaths = useCallback((ctx, data) => {
-    const lines = parseLines(data.lineArr, data.lineKeys);
-    
-    ctx.save();
-    ctx.lineWidth = 500;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.shadowColor = "rgba(0,0,0,0.3)";
-    ctx.shadowBlur = 12;
-
-    lines.forEach(line => {
-      if (line.path && line.path.length > 1) {
-        // Gradient cho mỗi path
-        const [x1, y1] = line.path[0];
-        const [x2, y2] = line.path[line.path.length - 1];
-        const grad = ctx.createLinearGradient(x1, y1, x2, y2);
-        grad.addColorStop(0, "#74b9ff");
-        grad.addColorStop(1, "#0984e3");
-        ctx.strokeStyle = grad;
-
-        ctx.beginPath();
-        ctx.moveTo(line.path[0][0], line.path[0][1]);
-        if (line.path.length === 2) {
-          ctx.lineTo(line.path[1][0], line.path[1][1]);
-        } else {
-          for (let i = 1; i < line.path.length - 2; i++) {
-            const xc = (line.path[i][0] + line.path[i + 1][0]) / 2;
-            const yc = (line.path[i][1] + line.path[i + 1][1]) / 2;
-            ctx.quadraticCurveTo(line.path[i][0], line.path[i][1], xc, yc);
-          }
-          ctx.quadraticCurveTo(
-            line.path[line.path.length - 2][0], line.path[line.path.length - 2][1],
-            line.path[line.path.length - 1][0], line.path[line.path.length - 1][1]
-          );
-        }
-        ctx.stroke();
-      }
-    });
-    ctx.restore();
-  }, [parseLines]);
-
-  const drawNodes = useCallback((ctx, data) => {
-    const nodes = parseNodes(data.nodeArr, data.nodeKeys);
-    
-    nodes.forEach(node => {
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, nodeRadius, 0, 2 * Math.PI);
-      
-      switch (node.type) {
-        case 0:
-          ctx.fillStyle = '#00b894';
-          break;
-        case 6:
-          ctx.fillStyle = '#e17055';
-          break;
-        default:
-          ctx.fillStyle = '#636e72';
-      }
-      
-      ctx.fill();
-      ctx.strokeStyle = '#2d3436';
-      ctx.lineWidth = nodeStrokeWidth;
-      ctx.stroke();
-      
-      ctx.fillStyle = '#2d3436';
-      ctx.font = `${nodeFontSize}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.fillText(node.name.slice(-3), node.x, node.y - nodeRadius - 200);
-    });
-  }, [parseNodes, nodeRadius, nodeStrokeWidth, nodeFontSize]);
-
-  const drawChargeStations = useCallback((ctx, data) => {
-    if (!data.chargeCoor) return;
-    
-    const nodes = parseNodes(data.nodeArr, data.nodeKeys);
-    const nodeMap = {};
-    nodes.forEach(node => {
-      nodeMap[node.name] = node;
-    });
-
-    data.chargeCoor.forEach(([nodeId, offset]) => {
-      const node = nodeMap[nodeId];
-      if (node) {
-        ctx.fillStyle = '#ffeaa7';
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, 1200, 0, 2 * Math.PI);
-        ctx.fill();
-        
-        ctx.fillStyle = '#fdcb6e';
-        ctx.font = '2000px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('⚡', node.x, node.y + 600);
-      }
-    });
-  }, [parseNodes]);
-
-  const drawRobot = useCallback((ctx, robot, security, amrImg) => {
-    ctx.save();
-    ctx.translate(robot.x, robot.y);
-    ctx.rotate(robot.angle);
-    
-    const currentConfig = security?.AvoidSceneSet?.find(scene => scene.id === selectedAvoidanceMode);
-    const avoidanceRadius = currentConfig?.config?.noload?.forward || 500;
-    
-    // Draw avoidance zone
-    ctx.strokeStyle = 'rgba(255, 107, 107, 0.3)';
-    ctx.fillStyle = 'rgba(255, 107, 107, 0.1)';
-    ctx.lineWidth = 200;
-    ctx.beginPath();
-    ctx.arc(0, 0, avoidanceRadius, 0, 2 * Math.PI);
-    ctx.fill();
-    ctx.stroke();
-    
-    // Draw AMR robot image if loaded, otherwise fallback to rectangle
-    if (amrImg) {
-      // Calculate image size (adjust as needed)
-      const imageSize = 3000; // Same size as the original rectangle
-      ctx.drawImage(amrImg, -imageSize/2, -imageSize/2, imageSize, imageSize);
-    } else {
-      // Fallback to original rectangle drawing
-      ctx.fillStyle = '#0984e3';
-      ctx.fillRect(-1500, -1000, 3000, 2000);
-      
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.moveTo(1200, 0);
-      ctx.lineTo(800, -600);
-      ctx.lineTo(800, 600);
-      ctx.closePath();
-      ctx.fill();
-    }
-    
-    ctx.restore();
-    
-    ctx.fillStyle = '#2d3436';
-    ctx.font = '1000px Arial'; // Giảm từ 1000 xuống 500
-    ctx.textAlign = 'center';
-    ctx.fillText(`(${Math.round(robot.x/1000)}k, ${Math.round(robot.y/1000)}k)`, robot.x, robot.y - 1500); // Điều chỉnh vị trí
-    
-    if (currentConfig) {
-      ctx.fillStyle = '#e17055';
-      ctx.font = '800px Arial'; // Thêm font size cho config name
-      ctx.fillText(currentConfig.name, robot.x, robot.y + 2000); // Điều chỉnh vị trí
-    }
-  }, [selectedAvoidanceMode]);
-
-  const drawMap = useCallback((ctx, data, security) => {
-    if (!data) return;
-
-    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    
-    ctx.save();
-    ctx.translate(offset.x + ctx.canvas.width/2, offset.y + ctx.canvas.height/2);
-    ctx.scale(scale, scale);
-    ctx.translate(-data.width/2, -data.height/2);
-
-    // Apply transformations
-    if (rotation !== 0) {
-      ctx.rotate((rotation * Math.PI) / 180);
-    }
-    if (mirrorX) {
-      ctx.scale(-1, 1);
-    }
-    if (mirrorY) {
-      ctx.scale(1, -1);
-    }
-
-    drawGrid(ctx, data);
-    
-    if (showPaths) {
-      drawPaths(ctx, data);
-    }
-    
-    if (showNodes) {
-      drawNodes(ctx, data);
-    }
-    
-    if (showChargeStations) {
-      drawChargeStations(ctx, data);
-    }
-    
-    drawRobot(ctx, robotPosition, security, amrImage);
-    
-    ctx.restore();
-  }, [drawGrid, drawPaths, drawNodes, drawChargeStations, drawRobot, offset, scale, showNodes, showPaths, showChargeStations, robotPosition, rotation, mirrorX, mirrorY, amrImage]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !mapData) return;
     
     const ctx = canvas.getContext('2d');
-    drawMap(ctx, mapData, securityConfig);
-  }, [mapData, securityConfig, drawMap]);
-
-  const handleZoom = (direction) => {
-    setScale(prev => {
-      const newScale = direction > 0 ? prev * 1.2 : prev / 1.2;
-      return Math.max(0.001, Math.min(0.05, newScale));
-    });
-  };
-
-  const handleReset = () => {
-    setScale(0.008);
-    setOffset({ x: 0, y: 0 });
-    setRotation(0);
-    setMirrorX(false);
-    setMirrorY(false);
-  };
-
-  const handleRotate = (direction) => {
-    setRotation(prev => {
-      const newRotation = prev + (direction * 90);
-      return newRotation % 360;
-    });
-  };
-
-  const handleMirrorX = () => {
-    setMirrorX(prev => !prev);
-  };
-
-  const handleMirrorY = () => {
-    setMirrorY(prev => !prev);
-  };
+    drawMap(ctx, mapData, securityConfig, offset, scale, rotation, mirrorX, mirrorY, robotPosition, showNodes, showPaths, showChargeStations, amrImage, selectedAvoidanceMode, nodeRadius, nodeStrokeWidth, nodeFontSize);
+  }, [mapData, securityConfig, drawMap, offset, scale, rotation, mirrorX, mirrorY, robotPosition, showNodes, showPaths, showChargeStations, amrImage, selectedAvoidanceMode, nodeRadius, nodeStrokeWidth, nodeFontSize]);
 
   return (
     <>
