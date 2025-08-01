@@ -61,9 +61,7 @@ const CameraGrid = ({ cameras = [], mediamtxUrl = 'http://localhost:8888' }) => 
       {/* Controls */}
       <div className="mb-4 flex justify-between items-center">
         <h3 className="text-lg font-semibold">Camera Monitoring ({cameras.length})</h3>
-        <div className="text-sm text-gray-600">
-          Layout: {matrixLayout.rows}×{matrixLayout.cols} Matrix
-        </div>
+        
       </div>
 
       {/* Camera Grid */}
